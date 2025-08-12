@@ -1,0 +1,43 @@
+import serial, time, pynmea2, math
+
+DEST_LAT = 12.9716
+DEST_LON = 77.5946
+TIMEOUT = 15  # seconds
+
+def distance_bearing(lat1, lon1, lat2, lon2):
+    R = 6371000
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+
+    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+    d = 2*R*math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    y = math.sin(dlambda) * math.cos(phi2)
+    x = math.cos(phi1)*math.sin(phi2) - math.sin(phi1)*math.cos(phi2)*math.cos(dlambda)
+    bearing = (math.degrees(math.atan2(y, x)) + 360) % 360
+    return d, bearing
+
+def cardinal_direction(bearing):
+    dirs = ["N","NE","E","SE","S","SW","W","NW"]
+    return dirs[int((bearing + 22.5) // 45) % 8]
+
+ser = serial.Serial("/dev/ttyS0", baudrate=9600, timeout=1)
+start = time.time()
+print("*** Raspberry Pi GPS Test ***\nWaiting for fix...")
+
+while True:
+    line = ser.readline().decode('ascii', errors='replace')
+    if line.startswith('$GPGGA') or line.startswith('$GPRMC'):
+        msg = pynmea2.parse(line)
+        if hasattr(msg, 'latitude') and msg.latitude and msg.latitude != 0.0:
+            lat, lon = msg.latitude, msg.longitude
+            distance, bearing = distance_bearing(lat, lon, DEST_LAT, DEST_LON)
+            dirc = cardinal_direction(bearing)
+            elapsed = time.time() - start
+            print(f"Lat: {lat:.6f}, Lon: {lon:.6f}")
+            print(f"Distance to Target: {distance:.0f} m | Bearing: {bearing:.0f}° ({dirc})")
+            print(f"Time to Fix: {elapsed:.1f} s\n-----------------------------")
+            break
+    if time.time() - start > TIMEOUT:
+        print("❗ GPS fix timeout!")
+        break
