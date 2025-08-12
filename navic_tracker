@@ -1,0 +1,58 @@
+#include <TinyGPS++.h>
+#include <HardwareSerial.h>
+
+#define GPS_RX_PIN 16  // NavIC TX → ESP32 RX2
+#define GPS_TX_PIN 17  // NavIC RX ← ESP32 TX2
+
+TinyGPSPlus gps;
+HardwareSerial gpsSerial(2); // UART2
+
+// Set a target position (e.g., home/base)
+static const double DEST_LAT = 12.9716;
+static const double DEST_LON = 77.5946;
+
+unsigned long fixStart = 0;
+const unsigned long TIMEOUT_MS = 15000;  // 15-second timeout
+
+void setup() {
+  Serial.begin(115200);
+  gpsSerial.begin(115200, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+  delay(3000);
+  Serial.println("\n*** NavIC + ESP32 Test ***");
+  Serial.println("Waiting for GPS fix (max 15 sec)...");
+  fixStart = millis();
+}
+
+void loop() {
+  while (gpsSerial.available() > 0) {
+    gps.encode(gpsSerial.read());
+  }
+
+  if (gps.location.isValid() && gps.location.age() < 2000) {
+    double lat = gps.location.lat();
+    double lon = gps.location.lng();
+    double speedKn = gps.speed.knots();
+    double alt = gps.altitude.meters();
+    double hdop = gps.hdop.hdop();
+    int sats = gps.satellites.value();
+
+    // Compute distance & direction to destination
+    double distance = TinyGPSPlus::distanceBetween(lat, lon, DEST_LAT, DEST_LON);
+    double courseTo = TinyGPSPlus::courseTo(lat, lon, DEST_LAT, DEST_LON);
+    const char* dir = TinyGPSPlus::cardinal(courseTo);
+
+    unsigned long fixTime = millis() - fixStart;
+
+    Serial.printf("Lat: %.6f, Lon: %.6f\n", lat, lon);
+    Serial.printf("Speed: %.2f knots | Altitude: %.2f m\n", speedKn, alt);
+    Serial.printf("Satellites: %d | HDOP: %.2f\n", sats, hdop);
+    Serial.printf("Distance to target: %.0f m | Bearing: %.0f° (%s)\n", distance, courseTo, dir);
+    Serial.printf("Fix acquired in: %.1f sec\n\n", fixTime / 1000.0);
+    Serial.println("------------------------------");
+    delay(5000);  // Simplify output rate
+  }
+  else if (millis() - fixStart > TIMEOUT_MS) {
+    Serial.println("❗ GPS fix timeout. Please check antenna and sky visibility.");
+    delay(5000);
+  }
+}
